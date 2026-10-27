@@ -77,13 +77,13 @@ private struct FreeSpaceChart: View {
 
     var body: some View {
         Chart {
-            ForEach(cleanups, id: \.date) { cleanup in
-                RuleMark(x: .value("Limpeza", cleanup.date))
+            ForEach(cleanupEvents, id: \.date) { event in
+                RuleMark(x: .value("Limpeza", event.date))
                     .foregroundStyle(Color.secondary.opacity(0.5))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .annotation(position: .top, alignment: .leading, spacing: 2) {
-                        Text(cleanup.freedBytes > 0 ? "+\(formatBytes(cleanup.freedBytes))" : cleanup.source)
-                            .font(.caption2).foregroundStyle(.secondary)
+                    .annotation(position: .top, alignment: .leading, spacing: 2,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        Text(label(event)).font(.caption2).foregroundStyle(.secondary)
                     }
             }
             ForEach(samples, id: \.date) { sample in
@@ -135,6 +135,18 @@ private struct FreeSpaceChart: View {
             }
         }
         .accessibilityLabel("Espaço livre ao longo do tempo")
+    }
+
+    /// Cleanups closer than ~1/15 of the visible span would draw over each other: one event each.
+    private var cleanupEvents: [History.CleanupGroup] {
+        guard let first = samples.first?.date, let last = samples.last?.date else { return [] }
+        return History.group(cleanups, within: max(last.timeIntervalSince(first) / 15, 60))
+    }
+
+    private func label(_ event: History.CleanupGroup) -> String {
+        let gain = event.freedBytes > 0 ? "+\(formatBytes(event.freedBytes))" : nil
+        if event.count == 1 { return gain ?? event.source ?? "" }
+        return [gain, "\(event.count) limpezas"].compactMap { $0 }.joined(separator: " · ")
     }
 
     private var dayStride: Int {

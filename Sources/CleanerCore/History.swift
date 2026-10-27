@@ -56,6 +56,31 @@ public struct History: Codable, Sendable, Equatable {
         cleanups.append(cleanup)
         if cleanups.count > Self.maxCleanups { cleanups.removeFirst(cleanups.count - Self.maxCleanups) }
     }
+
+    /// Cleanups close enough to land on the same spot of a chart, drawn as one event.
+    public struct CleanupGroup: Sendable, Equatable {
+        public let date: Date
+        public let freedBytes: Int64
+        public let count: Int
+        /// The single cleanup's source; nil when the group holds several.
+        public let source: String?
+    }
+
+    /// Merges cleanups less than `window` after the first one of the current group, so a busy
+    /// afternoon reads as one marker with the summed gain instead of labels stacked on each other.
+    /// Measured from the group's start, not the previous cleanup, so groups never chain forever.
+    public static func group(_ cleanups: [Cleanup], within window: TimeInterval) -> [CleanupGroup] {
+        var groups: [CleanupGroup] = []
+        for cleanup in cleanups.sorted(by: { $0.date < $1.date }) {
+            if let last = groups.last, cleanup.date.timeIntervalSince(last.date) < window {
+                groups[groups.count - 1] = CleanupGroup(date: last.date, freedBytes: last.freedBytes + cleanup.freedBytes,
+                                                        count: last.count + 1, source: nil)
+            } else {
+                groups.append(CleanupGroup(date: cleanup.date, freedBytes: cleanup.freedBytes, count: 1, source: cleanup.source))
+            }
+        }
+        return groups
+    }
 }
 
 /// Pace of disk consumption and the date it runs out, from the history.

@@ -589,6 +589,23 @@ func rule(
         #expect(abs((forecast.daysUntilFull ?? 0) - 20) < 0.5)
     }
 
+    @Test func nearbyCleanupsMergeIntoOneChartEvent() {
+        let mb: Int64 = 1_000_000
+        let cleanups = [
+            History.Cleanup(date: day(1).addingTimeInterval(600), source: "Space Lens", freedBytes: 0, items: []),
+            History.Cleanup(date: day(1), source: "Limpeza", freedBytes: 367 * mb, items: []),
+            History.Cleanup(date: day(1).addingTimeInterval(3_000), source: "node_modules", freedBytes: 100 * mb, items: []),
+            // 2 h after the group's start: its own event even though it is 50 min after the previous one.
+            History.Cleanup(date: day(1).addingTimeInterval(6_000), source: "Hibernar", freedBytes: 5 * mb, items: []),
+        ]
+        let groups = History.group(cleanups, within: 3_600)
+        #expect(groups == [
+            History.CleanupGroup(date: day(1), freedBytes: 467 * mb, count: 3, source: nil),
+            History.CleanupGroup(date: day(1).addingTimeInterval(6_000), freedBytes: 5 * mb, count: 1, source: "Hibernar"),
+        ])
+        #expect(History.group([], within: 3_600).isEmpty)
+    }
+
     @Test func recordedCleanupIsNotMistakenForAReversedTrend() throws {
         var history = History()
         for n in 0...10 {
