@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+dist/
+qa/
+
+re/
