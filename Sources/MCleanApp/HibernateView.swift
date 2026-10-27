@@ -7,14 +7,46 @@ struct HibernateView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: String?
     @State private var confirming: AppModel.AppRow?
+    @State private var search = ProcessInfo.processInfo.environment["MCLEAN_SEARCH"] ?? ""
+    @AppStorage("sort.hibernate") private var sort: Sort = .size
+
+    enum Sort: String, CaseIterable {
+        case size = "Tamanho", idle = "Mais parados", name = "Nome"
+    }
+
+    private func matches(_ name: String) -> Bool { search.isEmpty || name.localizedCaseInsensitiveContains(search) }
 
     private var candidates: [AppModel.AppRow] {
-        (model.appRows ?? []).filter { !$0.app.isApple }.sorted { ($0.appBytes ?? 0) > ($1.appBytes ?? 0) }
+        // A stub is what hibernating left behind: it is listed under "Hibernados", never sent away again.
+        let all = (model.appRows ?? []).filter {
+            !$0.app.isApple && !$0.app.bundleID.hasPrefix(Hibernator.stubPrefix) && matches($0.app.name)
+        }
+        let bySize: (AppModel.AppRow, AppModel.AppRow) -> Bool = { ($0.appBytes ?? 0) > ($1.appBytes ?? 0) }
+        switch sort {
+        case .size: return all.sorted(by: bySize)
+        // No recorded activity first, then the longest idle; ties go to the biggest, the best ones to send away.
+        case .idle: return all.sorted {
+            let (a, b) = ($0.lastUsed ?? .distantPast, $1.lastUsed ?? .distantPast)
+            return a == b ? bySize($0, $1) : a < b
+        }
+        case .name: return all.sorted { $0.app.name.localizedStandardCompare($1.app.name) == .orderedAscending }
+        }
+    }
+
+    private var hibernated: [HibernatedApp] {
+        let all = model.hibernated.filter { matches($0.name) }
+        switch sort {
+        case .size: return all.sorted { $0.bytes > $1.bytes }
+        // Hibernated longest ago first.
+        case .idle: return all.sorted { $0.date < $1.date }
+        case .name: return all.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        }
     }
 
     var body: some View {
         content
             .navigationTitle("Hibernar apps")
+            .searchable(text: $search, prompt: "Buscar app")
             .task { await model.loadHibernation() }
             // After a hibernate/wake the list changes under the selection: never leave a stale one.
             .onChange(of: model.hibernated.map(\.bundleID)) { selection = nil }
@@ -41,13 +73,17 @@ struct HibernateView: View {
             header
             Divider()
             List(selection: $selection) {
-                if !model.hibernated.isEmpty {
+                if !hibernated.isEmpty {
                     Section("Hibernados") {
-                        ForEach(model.hibernated) { entry in HibernatedRow(entry: entry) }
+                        ForEach(hibernated) { entry in HibernatedRow(entry: entry) }
                     }
                 }
                 Section("Apps instalados") {
-                    if model.appRows == nil { ProgressView().frame(maxWidth: .infinity) }
+                    if model.appRows == nil {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else if candidates.isEmpty && !search.isEmpty {
+                        Text("Nenhum app com “\(search)”").foregroundStyle(.secondary)
+                    }
                     ForEach(candidates) { row in
                         CandidateRow(row: row, problem: model.hibernationProblem(row)).tag(row.id)
                     }
@@ -67,11 +103,11 @@ struct HibernateView: View {
     private var header: some View {
         @Bindable var model = model
         return VStack(alignment: .leading, spacing: 8) {
-            if model.hibernationVolumes.isEmpty {
-                Label("Conecte um disco externo APFS ou HFS+ para hibernar apps.", systemImage: "externaldrive.badge.exclamationmark")
-                    .foregroundStyle(.orange)
-            } else {
-                HStack {
+            HStack {
+                if model.hibernationVolumes.isEmpty {
+                    Label("Conecte um disco externo APFS ou HFS+ para hibernar apps.", systemImage: "externaldrive.badge.exclamationmark")
+                        .foregroundStyle(.orange)
+                } else {
                     Text("Destino:")
                     Picker("Destino", selection: $model.hibernationTarget) {
                         ForEach(model.hibernationVolumes, id: \.self) { volume in
@@ -79,8 +115,9 @@ struct HibernateView: View {
                         }
                     }
                     .labelsHidden().fixedSize()
-                    Spacer()
                 }
+                Spacer()
+                SortPicker(selection: $sort)
             }
             if let message = model.hibernationMessage {
                 Label(message, systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)

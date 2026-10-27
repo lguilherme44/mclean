@@ -52,6 +52,32 @@ struct CapacityBar: View {
     }
 }
 
+/// The list-order control every list screen shares, so it looks and sits the same everywhere.
+struct SortPicker<Option: Hashable & CaseIterable & RawRepresentable>: View
+    where Option.AllCases: RandomAccessCollection, Option.RawValue == String {
+    @Binding var selection: Option
+
+    var body: some View {
+        Picker("Ordenar por", selection: $selection) {
+            ForEach(Option.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+}
+
+/// Empty search result. `ContentUnavailableView.search` would speak English in this app.
+struct NoMatches: View {
+    let search: String
+
+    var body: some View {
+        ContentUnavailableView("Nada encontrado para “\(search)”", systemImage: "magnifyingglass",
+                               description: Text("Confira a grafia ou busque por outro nome."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// Horizontal share bar for list rows.
 struct ShareBar: View {
     let fraction: Double

@@ -20,6 +20,10 @@ enum DevSnapshot {
            let window = NSApp.windows.first(where: \.isVisible) {
             window.setContentSize(NSSize(width: size[0], height: size[1]))
         }
+        // The node_modules search only starts from its button: start it for the states that wait on it.
+        if ["nodeListed", "nodeDone"].contains(when), model.nodeCandidates == nil {
+            Task { await model.findNodeModules() }
+        }
         for _ in 0..<600 {
             if reached(when, model: model) { break }
             try? await Task.sleep(for: .milliseconds(250))

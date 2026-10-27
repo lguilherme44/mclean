@@ -4,10 +4,12 @@ import SwiftUI
 
 struct SpaceLensView: View {
     @Environment(AppModel.self) private var model
+    @State private var search = ProcessInfo.processInfo.environment["MCLEAN_SEARCH"] ?? ""
 
     var body: some View {
         content
             .navigationTitle("Space Lens")
+            .searchable(text: $search, prompt: "Filtrar nesta pasta")
             .toolbar {
                 ToolbarItemGroup {
                     Button("Pasta pessoal") { model.scanLens(root: NSHomeDirectory()) }
@@ -69,10 +71,13 @@ struct SpaceLensView: View {
                         .padding(.vertical, 12)
                         Divider()
                     }
-                    NodeList(node: current, selection: $model.lensSelection, onRemove: model.requestLensReview)
+                    NodeList(node: current, search: search, selection: $model.lensSelection, onRemove: model.requestLensReview)
                     SelectionBar { model.requestLensReview(model.lensSelectedNodes) }
                 }
-                .onChange(of: current.path) { model.lensSelection = [] }
+                .onChange(of: current.path) {
+                    model.lensSelection = []
+                    search = ""
+                }
             }
         }
     }
@@ -113,20 +118,22 @@ private struct Breadcrumbs: View {
 private struct NodeList: View {
     @Environment(AppModel.self) private var model
     let node: SpaceNode
+    let search: String
     @Binding var selection: Set<String>
     let onRemove: ([SpaceNode]) -> Void
-    @State private var sort: Sort = .size
+    @AppStorage("sort.lens") private var sort: Sort = .size
 
     enum Sort: String, CaseIterable {
         case size = "Tamanho", oldest = "Mais antigos", name = "Nome"
     }
 
     private var sorted: [SpaceNode] {
+        let shown = search.isEmpty ? node.children : node.children.filter { $0.name.localizedCaseInsensitiveContains(search) }
         switch sort {
-        case .size: node.children
+        case .size: return shown
         // Dateless entries (empty folders) go last: nothing to judge them by.
-        case .oldest: node.children.sorted { ($0.lastModified ?? .distantFuture) < ($1.lastModified ?? .distantFuture) }
-        case .name: node.children.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .oldest: return shown.sorted { ($0.lastModified ?? .distantFuture) < ($1.lastModified ?? .distantFuture) }
+        case .name: return shown.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         }
     }
 
@@ -139,14 +146,10 @@ private struct NodeList: View {
             )
         } else {
             HStack {
-                Text("\(node.children.count) itens").font(.caption).foregroundStyle(.secondary)
+                Text(search.isEmpty ? "\(node.children.count) itens" : "\(sorted.count) de \(node.children.count) itens")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
-                Picker("Ordenar por", selection: $sort) {
-                    ForEach(Sort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                SortPicker(selection: $sort)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -155,6 +158,7 @@ private struct NodeList: View {
                     .tag(child.path)
             }
             .listStyle(.inset)
+            .overlay { if sorted.isEmpty { NoMatches(search: search) } }
             .contextMenu(forSelectionType: String.self) { paths in
                 let nodes = node.children.filter { paths.contains($0.path) }
                 if nodes.count == 1, let child = nodes.first {

@@ -334,9 +334,10 @@ final class AppModel {
     static let minimumNodeModulesBytes: Int64 = 1_000_000
     var nodeHiddenTinyCount = 0
 
-    func deleteSelectedNodeModules() async {
+    /// `paths`: the checked folders on screen; ones a search hides stay checked and untouched.
+    func deleteNodeModules(_ paths: Set<String>) async {
         guard let candidates = nodeCandidates else { return }
-        let targets = candidates.filter { nodeSelection.contains($0.path) }.map(\.path)
+        let targets = candidates.filter { paths.contains($0.path) }.map(\.path)
         isSearchingNodeModules = true
         let (freed, failures) = await Task.detached { () -> ([String: Int64], [String]) in
             let guardrail = SafetyGuard()
@@ -357,10 +358,10 @@ final class AppModel {
         if !failures.isEmpty {
             errorMessage = "\(failures.count) pasta(s) não foram apagadas (protegidas ou sem permissão)."
         }
-        nodeCandidates = candidates.filter { !nodeSelection.contains($0.path) || failures.contains($0.path) }
-        nodeSelection = []
-        isSearchingNodeModules = false
         let removed = targets.filter { !failures.contains($0) }
+        nodeCandidates = candidates.filter { !removed.contains($0.path) }
+        nodeSelection.subtract(targets)
+        isSearchingNodeModules = false
         if removed.isEmpty {
             await refreshDisk()
         } else {

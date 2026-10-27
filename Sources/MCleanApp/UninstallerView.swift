@@ -6,7 +6,7 @@ import SwiftUI
 struct UninstallerView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
-    @State private var sort: Sort = .size
+    @AppStorage("sort.apps") private var sort: Sort = .size
     @State private var selection: String?
     // `MCLEAN_UNINSTALLER_MODE=orphans` opens straight on the leftovers (visual QA).
     @State private var mode: Mode = ProcessInfo.processInfo.environment["MCLEAN_UNINSTALLER_MODE"] == "orphans" ? .orphans : .installed
@@ -89,10 +89,7 @@ struct UninstallerView: View {
                     Text("\(rows.count) apps · sobras = dados na Library além do app")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Picker("Ordenar por", selection: $sort) {
-                        ForEach(Sort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    SortPicker(selection: $sort)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 List(rows, selection: $selection) { row in
@@ -179,17 +176,29 @@ private struct AppRowView: View {
 private struct OrphanList: View {
     @Environment(AppModel.self) private var model
     let search: String
+    @AppStorage("sort.orphans") private var sort: Sort = .size
+
+    enum Sort: String, CaseIterable {
+        case size = "Tamanho", name = "Identificador"
+    }
 
     var body: some View {
         if let all = model.orphanRows {
-            let rows = search.isEmpty ? all : all.filter { $0.group.bundleID.localizedCaseInsensitiveContains(search) }
+            let found = search.isEmpty ? all : all.filter { $0.group.bundleID.localizedCaseInsensitiveContains(search) }
+            // The model already orders by size.
+            let rows = sort == .size ? found : found.sorted { $0.group.bundleID.localizedStandardCompare($1.group.bundleID) == .orderedAscending }
             let total = rows.reduce(0) { $0 + $1.totalBytes }
             VStack(spacing: 0) {
-                Text("Pastas com o identificador de apps que não estão mais instalados (nem em outro disco).")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                if rows.isEmpty {
+                HStack {
+                    Text("Pastas com o identificador de apps que não estão mais instalados (nem em outro disco).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    SortPicker(selection: $sort)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                if rows.isEmpty && !search.isEmpty {
+                    NoMatches(search: search)
+                } else if rows.isEmpty {
                     ContentUnavailableView("Nenhuma sobra encontrada", systemImage: "checkmark.circle")
                 } else {
                     List(rows) { row in
